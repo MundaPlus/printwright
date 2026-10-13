@@ -1,0 +1,75 @@
+/* Manage parts and projects, settings (manage.js). */
+.btn.icon { padding: 5px 8px; font-size: 16px; line-height: 19px; min-width: 32px; justify-content: center; }
+#settings-open { flex: none; }
+
+/* Part rows with a "⋯" menu */
+.parts li.has-menu { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 4px; align-items: center; }
+.parts li.has-menu > div { grid-column: 1; }
+.parts li.has-menu .part-menu {
+  grid-column: 2; grid-row: 1 / span 2; padding: 0; width: 32px; height: 32px; justify-content: center;
+  border-color: transparent; font-size: 18px; color: var(--muted);
+}
+.parts li.has-menu .part-menu:hover, .parts li.has-menu .part-menu:focus-visible { border-color: var(--line); color: var(--text); }
+.building { color: var(--accent); white-space: nowrap; }
+.building .spinner { width: 10px; height: 10px; border-width: 2px; vertical-align: -1px; }
+
+/* Popup menu */
+.pop-menu {
+  position: fixed; z-index: 70; min-width: 190px; padding: 4px; display: flex; flex-direction: column;
+  border-radius: 10px;
+}
+.pop-menu button {
+  background: none; border: 0; color: var(--text); font: inherit; text-align: left; padding: 9px 12px;
+  border-radius: 7px; cursor: pointer; min-height: 38px;
+}
+.pop-menu button:hover:not(:disabled), .pop-menu button:focus-visible { background: var(--panel-2); outline: none; }
+.pop-menu button:disabled { color: var(--muted); opacity: 0.6; cursor: not-allowed; }
+.pop-menu .danger-text { color: var(--danger); }
+
+/* Dialogs */
+.manage-overlay { z-index: 55; }
+.manage-overlay .modal { max-height: calc(100dvh - 32px); overflow-y: auto; }
+.manage-overlay .modal.wide { width: min(620px, 100%); }
+.dlg-body p { margin: 0 0 8px; }
+.dlg-body p:last-child { margin-bottom: 0; }
+.dlg-body code { background: var(--code-bg); padding: 1px 4px; border-radius: 4px; font-size: 12.5px; overflow-wrap: anywhere; }
+.dlg-body select.field { width: 100%; margin: 6px 0; }
+.ok-text { color: var(--ok); }
+
+/* Older versions */
+.versions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.versions li {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2);
+}
+.ver-text { min-width: 0; overflow-wrap: anywhere; }
+.ver-actions { display: flex; gap: 6px; flex: none; }
+.ver-preview {
+  margin: 10px 0 0; max-height: 40dvh; overflow: auto; background: var(--code-bg); padding: 10px;
+  border-radius: 8px; font-size: 12px;
+}
+
+/* Settings */
+.settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.settings-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); min-width: 0; }
+.settings-grid .field { color: var(--text); width: 100%; }
+.settings-grid .span { grid-column: 1 / -1; }
+.url-row { display: flex; gap: 8px; }
+.url-row .field { flex: 1; }
+.settings-grid fieldset.bed {
+  border: 0; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;
+}
+.settings-grid fieldset.bed legend { font-size: 13px; color: var(--muted); padding: 0; margin-bottom: 4px; }
+
+@media (max-width: 560px) {
+  .settings-grid { grid-template-columns: minmax(0, 1fr); }
+  .url-row { flex-direction: column; }
+  .versions li { flex-direction: column; align-items: stretch; }
+  .ver-actions .btn { flex: 1; justify-content: center; }
+}
+@media (max-width: 860px), (pointer: coarse) {
+  .parts li.has-menu .part-menu { width: 40px; height: 40px; }
+  .btn.icon { min-width: 40px; min-height: 40px; }
+  .pop-menu button { min-height: 44px; }
+}
+.manage-overlay .field:focus { outline: 2px solid var(--accent); outline-offset: -1px; }

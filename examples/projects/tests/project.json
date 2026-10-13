@@ -1,0 +1,14 @@
+{
+ "id": "tests",
+ "name": "Tests",
+ "created": 1791849600.0,
+ "updated": 1791849600.0,
+ "parts": [
+  "demo_box",
+  "test_coaster"
+ ],
+ "ideas": {},
+ "plate": {
+  "demo_box": 4
+ }
+}

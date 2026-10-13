@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+# Local test output and workspaces: keep them outside the repo
+/tmp/
+/STEP/
+/STL/
+/GLB/
+/gcode/
+/src/
+/projects/
+/printwright.json
+/.printwright/
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store

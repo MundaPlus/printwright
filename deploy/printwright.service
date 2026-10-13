@@ -1,0 +1,20 @@
+# systemd user unit for the Printwright web app.
+# Install: deploy/install.sh. It replaces @APP@ with the app folder and copies
+# this file to ~/.config/systemd/user/.
+[Unit]
+Description=Printwright (design, view and print parts)
+After=network-online.target
+
+[Service]
+WorkingDirectory=@APP@
+Environment=PRINT_WEB_HOST=0.0.0.0
+Environment=PRINT_WEB_PORT=8420
+# Values in the env file win over the defaults above.
+EnvironmentFile=%h/.config/printwright/env
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/uv run --project web uvicorn app:app --app-dir web --host ${PRINT_WEB_HOST} --port ${PRINT_WEB_PORT}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

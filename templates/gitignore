@@ -1,0 +1,12 @@
+# Generated: tools/make.sh and tools/plate.py build these from src/ and the presets
+STEP/
+STL/
+GLB/
+gcode/
+tmp/
+__pycache__/
+# Web app runtime data (chat logs, Ideas runs)
+.printwright/
+# Links into the app, made by tools/init-workspace.sh
+/tools
+/src/lib

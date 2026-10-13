@@ -1,0 +1,16 @@
+{
+  "_comment": "Printwright workspace config. Keys that start with _ are ignored. See README.md.",
+  "owner": "Alex",
+  "printer_name": "Elegoo Neptune 4 Pro",
+  "moonraker_url": "http://printer.local",
+  "bed": [235, 230, 265],
+  "nozzle": 0.4,
+  "material": "PLA",
+  "file_prefix": "AI_",
+  "presets": "",
+  "orca": {
+    "printer": "Elegoo Neptune 4 Pro (0.4 nozzle)",
+    "process": "0.20mm Standard @Elegoo Neptune4Pro (0.4 nozzle)",
+    "filament": "Elegoo Generic PLA"
+  }
+}

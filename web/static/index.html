@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="darkreader-lock">
+  <meta name="color-scheme" content="light dark">
+  <title>Printwright</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='4' y='20' width='24' height='6' rx='1.5' fill='%233b82f6'/><path d='M10 20 L16 8 L22 20 Z' fill='%23f2c230'/></svg>">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/layers.css">
+  <link rel="stylesheet" href="/static/slicing.css">
+  <link rel="stylesheet" href="/static/manage.css">
+  <script type="importmap">
+    {"imports": {
+      "three": "/static/vendor/three/build/three.module.min.js",
+      "three/addons/": "/static/vendor/three/examples/jsm/"
+    }}
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden="true"><rect x="4" y="20" width="24" height="6" rx="1.5" fill="var(--accent)"/><path d="M10 20 L16 8 L22 20 Z" fill="var(--ruler)"/></svg>
+      <span>Printwright</span>
+    </div>
+    <div class="project-bar">
+      <select id="project-select" aria-label="Project"></select>
+      <button id="project-new" class="btn small" title="Start a new project">+<span class="lbl"> Project</span></button>
+      <button id="project-menu" class="btn small ghost icon" title="Rename or delete this project" aria-label="Project actions">⋯</button>
+    </div>
+    <div id="printer" class="printer-pill" title="Printer status">
+      <span class="dot"></span>
+      <span id="printer-state">…</span>
+      <span id="printer-temps" class="muted"></span>
+      <span id="printer-progress" class="progress" hidden><span></span></span>
+      <button id="printer-cancel" class="btn small danger" hidden>Cancel print</button>
+    </div>
+    <button id="settings-open" class="btn small ghost icon" title="Settings: printer, bed size, material" aria-label="Settings">⚙</button>
+  </header>
+
+  <main class="layout" data-tab="view">
+    <!-- Parts -->
+    <aside class="panel parts-panel" data-pane="parts">
+      <div class="panel-head">
+        <h2>Parts</h2>
+        <div>
+          <button id="plate-toggle" class="btn small" title="Put several parts on one plate">Plate…</button>
+          <button id="parts-refresh" class="btn small ghost" title="Refresh">↻</button>
+        </div>
+      </div>
+      <p id="plate-help" class="muted pad small" hidden>Set how many of each part you want. Then arrange them on the plate.</p>
+      <ul id="parts" class="parts"></ul>
+      <p id="parts-empty" class="muted pad" hidden>No parts yet. Describe one in the chat.</p>
+      <div id="plate-bar" class="plate-bar" hidden>
+        <span id="plate-total" class="muted"></span>
+        <button id="plate-arrange" class="btn small primary">Arrange on plate</button>
+      </div>
+    </aside>
+
+    <!-- Viewer -->
+    <section class="viewer-panel" data-pane="view">
+      <div id="viewer" class="viewer">
+        <div class="view-tools">
+          <button class="btn small" data-view="iso">Iso</button>
+          <button class="btn small" data-view="top">Top</button>
+          <button class="btn small" data-view="front">Front</button>
+          <button class="btn small" data-view="bottom" title="Look from under the bed">Bottom</button>
+          <button class="btn small" data-view="part">Zoom to part</button>
+          <button class="btn small" data-view="bed">Whole bed</button>
+        </div>
+        <div id="viewer-empty" class="viewer-empty">
+          <p>Select a part, or describe a new one in the chat.</p>
+        </div>
+        <div id="viewer-loading" class="viewer-loading" hidden><span class="spinner"></span> Loading model…</div>
+      </div>
+      <div class="infobar">
+        <div class="info-main">
+          <strong id="info-name">—</strong>
+          <span id="info-size" class="chip"></span>
+          <span id="info-time" class="chip"></span>
+          <span id="info-grams" class="chip"></span>
+        </div>
+        <div class="info-actions">
+          <a id="dl-stl" class="btn small ghost" download hidden>STL</a>
+          <a id="dl-gcode" class="btn small ghost" download hidden>G-code</a>
+          <button id="print-btn" class="btn primary" disabled>Print…</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Chat -->
+    <section class="panel chat-panel" data-pane="chat">
+      <div class="panel-head">
+        <select id="chat-select" aria-label="Conversation"></select>
+        <button id="ideas-open" class="btn small" title="Ideas from product specs or a product page">💡 Ideas</button>
+        <button id="chat-new" class="btn small">New chat</button>
+      </div>
+      <div id="messages" class="messages">
+        <div class="hint muted">
+          <p>Describe a part. For example:</p>
+          <ul>
+            <li>“A wall hook for a 30 mm broom handle, 2 screw holes.”</li>
+            <li>“Make the selected box 10 mm taller and add a lid.”</li>
+          </ul>
+          <p>Claude designs and slices it. You start the print with the Print button.</p>
+          <p>No idea yet? Use <strong>💡 Ideas</strong>. Give the specs or a web page of a product. Claude suggests parts for it.</p>
+        </div>
+      </div>
+      <form id="chat-form" class="composer">
+        <div id="context-chip" class="context" hidden>
+          <span>About: <strong id="context-part"></strong></span>
+          <button type="button" id="context-clear" class="btn tiny ghost" title="Do not refer to this part">×</button>
+        </div>
+        <div id="chat-files" class="attachments" hidden></div>
+        <textarea id="chat-input" rows="2" placeholder="Describe a part or a change… (paste a picture here)"></textarea>
+        <div class="composer-row">
+          <button id="chat-attach" type="button" class="btn small ghost" title="Add a picture or file">📎</button>
+          <span id="chat-status" class="muted"></span>
+          <button id="chat-stop" type="button" class="btn small danger" hidden>Stop</button>
+          <button id="chat-send" class="btn primary" type="submit">Send</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <nav class="tabs" aria-label="Sections">
+    <button data-tab="parts">Parts</button>
+    <button data-tab="view" class="active">View</button>
+    <button data-tab="chat">Chat</button>
+  </nav>
+
+  <!-- Ideas -->
+  <div id="ideas-modal" class="overlay" hidden>
+    <div class="card modal ideas">
+      <div class="ideas-head">
+        <h2>What do you want to make?</h2>
+        <button id="ideas-close" class="btn small ghost" title="Close">×</button>
+      </div>
+      <form id="ideas-start" class="ideas-step">
+        <label for="ideas-source" class="muted">Paste the product specs, or a link to the product page.</label>
+        <textarea id="ideas-source" rows="5" placeholder="https://… or: Router, 220 × 140 × 35 mm, cables at the back, 2 wall-mount holes 120 mm apart. You can also paste a photo."></textarea>
+        <div id="ideas-files" class="attachments" hidden></div>
+        <div class="modal-actions">
+          <button id="ideas-attach" class="btn ghost" type="button">📎 Picture or file</button>
+          <button class="btn primary" type="submit">Suggest ideas</button>
+        </div>
+      </form>
+      <div id="ideas-result" class="ideas-step" hidden>
+        <div class="product">
+          <div class="product-row">
+            <strong id="ideas-product"></strong>
+            <button id="ideas-change" class="btn tiny ghost" type="button">Change product</button>
+          </div>
+          <p id="ideas-summary" class="muted"></p>
+          <details><summary>Facts Claude uses</summary><ul id="ideas-facts"></ul></details>
+        </div>
+        <div id="ideas-steer" class="steer" role="group" aria-label="Kind of part"></div>
+        <input id="ideas-wishes" type="text" maxlength="500" placeholder="Other wishes, e.g. no screws, fits on a 20 mm shelf">
+        <div id="ideas-list" class="idea-list"></div>
+        <div class="modal-actions">
+          <button id="ideas-other" class="btn ghost" type="button">Something else…</button>
+          <button id="ideas-more" class="btn" type="button">↻ 3 new ideas</button>
+        </div>
+      </div>
+      <p id="ideas-loading" class="muted" hidden><span class="spinner"></span> <span id="ideas-loading-text">Claude reads the product…</span></p>
+      <p id="ideas-error" class="error" hidden></p>
+    </div>
+  </div>
+
+  <input type="file" id="file-input" multiple hidden
+    accept="image/*,.pdf,.txt,.md,.csv,.stl,.step,.stp,.3mf,.obj,.dxf,.svg">
+
+  <!-- New project -->
+  <div id="project-modal" class="overlay" hidden>
+    <form id="project-form" class="card modal">
+      <h2>New project</h2>
+      <p class="muted">A project keeps its own parts, chats, ideas, files and plate.</p>
+      <input id="project-name" class="field" type="text" maxlength="80" placeholder="Name, e.g. Desk organizer" required>
+      <label class="check"><input type="checkbox" id="project-ideas" checked> Start with ideas for a product</label>
+      <div class="modal-actions">
+        <button id="project-cancel" type="button" class="btn ghost">Cancel</button>
+        <button class="btn primary" type="submit">Create</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Print confirm -->
+  <div id="print-modal" class="overlay" hidden>
+    <div class="card modal">
+      <h2>Start print?</h2>
+      <dl id="print-details" class="details"></dl>
+      <label class="check"><input type="checkbox" id="chk-bed"> The bed is empty and clean.</label>
+      <label class="check"><input type="checkbox" id="chk-fil"> <span id="chk-fil-text">PLA is loaded.</span></label>
+      <p id="print-error" class="error" hidden></p>
+      <div class="modal-actions">
+        <button id="print-no" class="btn ghost">Back</button>
+        <button id="print-yes" class="btn primary" disabled>Start print</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cancel confirm -->
+  <div id="cancel-modal" class="overlay" hidden>
+    <div class="card modal">
+      <h2>Cancel the running print?</h2>
+      <p class="muted">The printer stops now. You cannot resume this print.</p>
+      <div class="modal-actions">
+        <button id="cancel-no" class="btn ghost">Keep printing</button>
+        <button id="cancel-yes" class="btn danger">Cancel print</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+  <script type="module" src="/static/app.js"></script>
+  <script type="module" src="/static/slicing.js"></script>
+  <script type="module" src="/static/manage.js"></script>
+</body>
+</html>

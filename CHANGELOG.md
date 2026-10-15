@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026-10-15
+- First layer gets a 5 mm auto brim by default (`presets/process.json`: `brim_type` auto_brim, `brim_width` 5, was 0) — parts and plates had only the skirt, which gives little bed grip.
+
 ## 2026-10-13
 - First public release, Printwright 1.0, with all the changes below (`web/pyproject.toml`) — the app is ready for other users.
 - Short README, full feature list in FEATURES.md, screenshots, and credits for text-to-cad, OrcaSlicer and three.js (`README.md`, `FEATURES.md`, `docs/screenshots/`, `CLAUDE.md`) — new users need a short start page and a complete, correct feature list.

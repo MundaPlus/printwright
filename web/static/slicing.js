@@ -1,12 +1,15 @@
 // Print settings panel: material, layer height, infill, walls, supports, brim and the
-// turn on the bed, per part (presets/parts/<part>.json) or per plate (plate_<project>).
+// turn on the bed per part, or the layout of the copies per plate. Settings live
+// in presets/parts/<part>.json or presets/parts/plate_<project>.json.
 // "Save and re-slice" runs only the slicer (the CAD model stays as it is), then the
 // server rebuilds the bed view. The panel polls the job and refreshes the info bar.
 import { state, api, toast, refreshParts, fmtMin, esc } from "./app.js";
 
 const $ = (id) => document.getElementById(id);
 const AXIS_STEPS = [0, 90, 180, 270];
-const STALE_TEXT = { material: "material", placement: "turn on the bed" };
+const STALE_TEXT = { material: "material", placement: "turn on the bed", arrange: "plate layout" };
+const ALIGNS = [["center", "Centre"], ["front_left", "Front left"], ["front_right", "Front right"],
+  ["back_left", "Back left"], ["back_right", "Back right"]];
 const ps = { target: null, data: null, form: null, saved: "", polls: {} };
 
 // ---------- Button in the info bar ----------
@@ -15,7 +18,7 @@ openBtn.id = "ps-open";
 openBtn.type = "button";
 openBtn.className = "btn small";
 openBtn.innerHTML = `<span class="ps-icon" aria-hidden="true">⚙</span><span class="ps-label">Settings</span>`;
-openBtn.title = "Print settings: material, infill, supports, brim, turn";
+openBtn.title = "Print settings: material, infill, supports, brim, turn, plate layout";
 $("print-btn").before(openBtn);
 
 // ---------- Side sheet ----------
@@ -57,6 +60,7 @@ function formFrom(data) {
     values: { ...data.values },
     material: data.material.value,
     placement: data.placement ? { rotate: [...data.placement.rotate], auto_orient: data.placement.auto_orient } : null,
+    arrange: data.arrange ? { ...data.arrange } : null,
   };
 }
 const snapshot = (f) => JSON.stringify(f);
@@ -155,9 +159,26 @@ function render() {
       <p class="muted small ps-note">X and Y lay the part on another face. The slicer turns X first, then Y, then Z.
         "Lay flat (auto)" lets OrcaSlicer choose the face; the bed view then shows the part as designed.</p>
     </fieldset>`);
-  } else {
-    parts.push(`<p class="muted small ps-note">A plate uses its own settings: OrcaSlicer cannot mix settings on one plate.
-      Each part keeps its own turn. Set the turn in the settings of the part.</p>`);
+  } else if (form.arrange) {
+    const a = form.arrange, def = d.arrange_defaults, grid = a.mode === "grid";
+    const alignText = (v) => ALIGNS.find((x) => x[0] === v)?.[1] || v;
+    parts.push(`<fieldset><legend>Arrange on the plate</legend>
+      ${row("arrange_mode", "Layout", seg("amode", [["auto", "Auto (tight)"], ["grid", "Grid"]], a.mode),
+        a.mode !== def.mode, def.mode === "grid" ? "Grid" : "Auto")}
+      ${row("arrange_spacing", "Spacing", `<span class="ps-num"><input type="number" id="ps-arrange_spacing" data-spacing
+        min="0" max="50" step="1" value="${a.spacing}"${grid ? "" : " disabled"}><span class="muted">mm</span></span>`,
+        !same(a.spacing, def.spacing), `${def.spacing} mm`, grid ? "" : " off")}
+      ${row("arrange_align", "Position", `<select id="ps-arrange_align" data-align${grid ? "" : " disabled"}>${ALIGNS.map(([v, l]) =>
+        `<option value="${v}"${v === a.align ? " selected" : ""}>${l}</option>`).join("")}</select>`,
+        a.align !== def.align, alignText(def.align), grid ? "" : " off")}
+      ${row("arrange_turn", "Turn copies to fit", `<input type="checkbox" id="ps-arrange_turn" data-turn${a.turn ? " checked" : ""}>`,
+        a.turn !== def.turn, def.turn ? "on" : "off")}
+      <p class="muted small ps-note">Auto: OrcaSlicer packs the copies tight, about 2 mm apart, in the middle of the bed.
+        Grid: rows of copies with your spacing, in the middle or in a corner. "Turn copies to fit" lets auto turn
+        each copy, and turns all grid copies 90° when that fits better.</p>
+      <p class="muted small ps-note">A plate uses its own settings: OrcaSlicer cannot mix settings on one plate.
+        Each part keeps its own turn. Set the turn in the settings of the part.</p>
+    </fieldset>`);
   }
 
   const extra = Object.entries(d.extra || {});
@@ -239,6 +260,7 @@ async function save() {
   const d = ps.data;
   const body = { values: ps.form.values, material: ps.form.material };
   if (ps.form.placement) body.placement = ps.form.placement;
+  if (ps.form.arrange) body.arrange = ps.form.arrange;
   const data = await api(`/api/slicing/settings/${d.name}`, { method: "PUT", body: JSON.stringify(body) });
   ps.data = data;
   ps.form = formFrom(data);
@@ -304,6 +326,11 @@ $("ps-form").addEventListener("input", (e) => {
     ps.form.values[f.key] = f.type === "percent" ? `${t.value}%` : t.value;
     t.closest(".ps-row").classList.toggle("changed", changed(f.key));
     renderStatus();
+  } else if (t.dataset.spacing !== undefined) {
+    const v = parseFloat(t.value);
+    if (Number.isFinite(v)) ps.form.arrange.spacing = v;
+    t.closest(".ps-row").classList.toggle("changed", !same(v, ps.data.arrange_defaults.spacing));
+    renderStatus();
   } else if (t.dataset.rz !== undefined) {
     const v = parseFloat(t.value);
     if (Number.isFinite(v)) ps.form.placement.rotate[2] = Math.round((((v % 360) + 360) % 360) * 100) / 100;
@@ -316,7 +343,9 @@ $("ps-form").addEventListener("change", (e) => {
   else if (t.dataset.key && t.tagName === "SELECT") ps.form.values[t.dataset.key] = t.value;
   else if (t.dataset.material !== undefined) ps.form.material = t.value;
   else if (t.dataset.orient !== undefined) ps.form.placement.auto_orient = t.checked;
-  else if (t.dataset.rz === undefined) return; // number inputs keep focus; their row is already marked
+  else if (t.dataset.turn !== undefined) ps.form.arrange.turn = t.checked;
+  else if (t.dataset.align !== undefined) ps.form.arrange.align = t.value;
+  else if (t.dataset.rz === undefined && t.dataset.spacing === undefined) return; // number inputs keep focus; their row is already marked
   render();
 });
 $("ps-form").addEventListener("click", (e) => {
@@ -329,6 +358,7 @@ $("ps-form").addEventListener("click", (e) => {
     else if (k === "supports") { v.enable_support = d.enable_support; v.support_type = d.support_type; }
     else if (k.startsWith("rotate_")) ps.form.placement.rotate["xyz".indexOf(k.slice(-1))] = 0;
     else if (k === "auto_orient") ps.form.placement.auto_orient = false;
+    else if (k.startsWith("arrange_")) ps.form.arrange[k.slice(8)] = ps.data.arrange_defaults[k.slice(8)];
     else v[k] = d[k];
   } else {
     const name = b.dataset.seg, val = b.dataset.value;
@@ -338,6 +368,8 @@ $("ps-form").addEventListener("click", (e) => {
     } else if (name === "brim_type") {
       v.brim_type = val;
       if (val === "outer_only" && !(parseFloat(v.brim_width) > 0)) v.brim_width = "5";
+    } else if (name === "amode") {
+      ps.form.arrange.mode = val;
     } else if (["rx", "ry", "rz"].includes(name)) {
       ps.form.placement.rotate[["rx", "ry", "rz"].indexOf(name)] = Number(val);
     }
@@ -353,6 +385,7 @@ $("ps-reset").addEventListener("click", () => {
   ps.form.values = { ...d.defaults };
   ps.form.material = d.material.default;
   if (ps.form.placement) ps.form.placement = { rotate: [0, 0, 0], auto_orient: false };
+  if (ps.form.arrange) ps.form.arrange = { ...d.arrange_defaults };
   render();
 });
 $("ps-wrap").addEventListener("click", (e) => { if (e.target.closest("[data-close]")) closeSheet(); });
@@ -374,7 +407,8 @@ function refreshButton() {
       const d = await api(`/api/slicing/settings/${t.name}`);
       if (current()?.name !== t.name) return;
       const custom = Object.keys(d.overrides).length || d.material.value !== d.material.default ||
-        (d.placement && (d.placement.auto_orient || d.placement.rotate.some((a) => a)));
+        (d.placement && (d.placement.auto_orient || d.placement.rotate.some((a) => a))) ||
+        (d.arrange && JSON.stringify(d.arrange) !== JSON.stringify(d.arrange_defaults));
       openBtn.classList.toggle("custom", !!custom);
       openBtn.classList.toggle("stale", d.stale.length > 0);
       openBtn.title = (d.stale.length ? "The G-code does not use these settings yet. " : "") +

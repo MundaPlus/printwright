@@ -82,7 +82,10 @@ The README covers the install. This file lists what Printwright can do.
 ![Plate mode with two boxes and a coaster on one bed](docs/screenshots/plate.png)
 
 - **Several parts on one bed.** **Plate…** lets you set a count for each part of the project.
-- **Arrange.** **Arrange on plate** lets OrcaSlicer place and slice all copies together.
+- **Arrange.** **Arrange on plate** places and slices all copies together.
+- **Layout.** The plate settings choose how the copies sit on the bed. **Auto** lets OrcaSlicer pack them tight.
+  **Grid** puts them in rows with your spacing (0–50 mm), in the middle or in a corner of the bed.
+  **Turn copies to fit** lets the copies turn around Z when that fits better.
 - **Preview.** The viewer shows the arranged plate with the total time and grams before you print.
 - **Fit check.** The size turns red and the app tells you when the copies do not fit on one plate.
 - **Plate settings.** A plate has its own settings file, `presets/parts/plate_<project>.json`.

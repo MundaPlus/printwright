@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-10-15
+- Plate layout choices: auto (OrcaSlicer packs tight, optional turn) or grid (rows with spacing, centre or a corner, optional 90° turn); stored as `arrange` in the plate's settings file, set in the plate settings panel, marked stale when it changed (`lib/part_settings.py`, `tools/plate.py`, `web/slicing.py`, `web/static/slicing.js`, `FEATURES.md`, `templates/CLAUDE.workspace.md`) — users want to choose how the copies sit on the plate. OrcaSlicer's command line has no spacing option, so the grid places the copies itself and slices with `--arrange 0`.
 - First layer gets a 5 mm auto brim by default (`presets/process.json`: `brim_type` auto_brim, `brim_width` 5, was 0) — parts and plates had only the skirt, which gives little bed grip.
 
 ## 2026-10-13

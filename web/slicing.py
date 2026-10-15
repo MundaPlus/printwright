@@ -141,7 +141,19 @@ def settings_view(name: str, kind: str) -> dict:
     size = None
     if kind == "part" and head and (WS / "STL" / f"{name}.stl").is_file():
         size = stl_xy(placed_stl_path(name))
-    return {**eff, "sliced": head, "stale": stale_keys(eff, head, size), "job": job_state(name)}
+    stale = stale_keys(eff, head, size)
+    if kind == "plate" and head and plate_arrange(name) not in (None, eff["arrange"]):
+        stale.append("arrange")
+    return {**eff, "sliced": head, "stale": stale, "job": job_state(name)}
+
+
+def plate_arrange(name: str) -> dict | None:
+    """The layout settings of the last arranged plate. Plates from before this setting used the default."""
+    try:
+        layout = json.loads((WS / "gcode" / f"{name}.layout.json").read_text())
+    except (OSError, ValueError):
+        return None
+    return layout.get("arrange") or part_settings.DEFAULT_ARRANGE
 
 
 @router.get("/materials")

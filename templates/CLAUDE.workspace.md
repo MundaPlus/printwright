@@ -47,6 +47,11 @@ Their name, the printer, the bed size and the material are in `printwright.json`
   X and Y take 0, 90, 180 or 270. Use it to lay a part on another face instead of changing the model.
   The bed view, the size and the slicer use the same turn. `auto_orient` lets OrcaSlicer choose the face.
 - A plate uses only its own file. OrcaSlicer cannot mix settings on one plate. Each part keeps its own turn.
+- A plate file can set the layout of the copies:
+  `"arrange": {"mode": "grid", "spacing": 5, "align": "center", "turn": false}`.
+  `mode` "auto" lets OrcaSlicer pack the copies tight. "grid" puts them in rows `spacing` mm apart (0–50).
+  `align` is center, front_left, front_right, back_left or back_right (grid only).
+  `turn` lets the copies turn around Z to fit. Then run `tools/plate.py` again.
 
 ## Rules
 

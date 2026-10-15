@@ -14,6 +14,12 @@ Run it in a workspace (or set PRINTWRIGHT_WORKSPACE). All paths above are in the
 Settings: OrcaSlicer's command line has no settings per object. Thus the plate uses
 its own file presets/parts/<plate_name>.json (process keys and "material"), not the
 files of its parts. Each part keeps its own placement (turn): its turned STL is used.
+
+Layout: "arrange" in the plate's file (see lib/part_settings.py).
+  auto  OrcaSlicer packs the copies tight. "turn" lets it turn copies around Z.
+  grid  this script puts the copies in rows, "spacing" mm apart, at "align"
+        (center or a corner), and OrcaSlicer slices them where they are.
+        "turn" turns all copies 90 degrees when that fits better.
 """
 from __future__ import annotations
 
@@ -37,6 +43,7 @@ os.environ["PRINTWRIGHT_WORKSPACE"] = str(WS)  # for orca-docker.sh and printer.
 NAME_RE = re.compile(r"^[a-z0-9_]+$")
 OBJ_RE = re.compile(r"^EXCLUDE_OBJECT_DEFINE NAME=(\S+) CENTER=([\d.,-]+) POLYGON=(\[.*\])\s*$")
 MAX_COPIES = 50
+EDGE = 2.0  # mm from a copy (or its brim) to the edge of the bed
 
 
 def orca_cmd() -> list[str]:
@@ -83,6 +90,72 @@ def objects(gcode: Path) -> list[dict]:
     return found
 
 
+def grid(sizes: list[tuple[float, float]], bed: tuple[float, float], gap: float, align: str,
+         edge: float) -> tuple[list[tuple[float, float]], float] | None:
+    """Rows of copies, deepest first. sizes: X and Y of each copy.
+
+    Returns the centre of each copy and the area of the block, or None when they do not fit.
+    """
+    room_x, room_y = bed[0] - 2 * edge, bed[1] - 2 * edge
+    order = sorted(range(len(sizes)), key=lambda i: -sizes[i][1])
+    rows: list[list[int]] = [[]]
+    widths = [0.0]
+    for i in order:
+        w = sizes[i][0]
+        need = widths[-1] + (gap if rows[-1] else 0) + w
+        if rows[-1] and need > room_x + 1e-6:
+            rows.append([])
+            widths.append(0.0)
+            need = w
+        if need > room_x + 1e-6:
+            return None
+        rows[-1].append(i)
+        widths[-1] = need
+    depths = [max(sizes[i][1] for i in r) for r in rows]
+    block_x, block_y = max(widths), sum(depths) + gap * (len(rows) - 1)
+    if block_y > room_y + 1e-6:
+        return None
+    side = align.split("_")[-1]  # center, left or right
+    x0 = {"left": edge, "right": bed[0] - edge - block_x}.get(side, (bed[0] - block_x) / 2)
+    y0 = {"front": edge, "back": bed[1] - edge - block_y}.get(align.split("_")[0], (bed[1] - block_y) / 2)
+    centers: list[tuple[float, float]] = [(0.0, 0.0)] * len(sizes)
+    y = y0
+    for r, w_row, d_row in zip(rows, widths, depths):
+        x = x0 + {"left": 0, "right": block_x - w_row}.get(side, (block_x - w_row) / 2)
+        for i in r:
+            w, d = sizes[i]
+            centers[i] = (round(x + w / 2, 3), round(y + d / 2, 3))
+            x += w + gap
+        y += d_row + gap
+    return centers, block_x * block_y
+
+
+def place_grid(name: str, items: dict[str, int], ar: dict, out: Path) -> tuple[list[str] | None, str | None]:
+    """Write one STL per copy at its place in the grid. Returns the STLs, or None and the reason."""
+    bed = workspace.load_config(WS)["bed"]
+    values = part_settings.effective(name, "plate", WS)["values"]
+    brim = float(values.get("brim_width") or 0) if values.get("brim_type") != "no_brim" else 0.0
+    edge = EDGE + brim
+    copies = [(p, part_settings.placed_stl(p, WS)) for p, n in items.items() for _ in range(n)]
+    size = {p: part_settings.stl_size(stl)[:2] for p, stl in set(copies)}
+    best = None
+    for turn in ((0, 90) if ar["turn"] else (0,)):
+        sizes = [tuple(size[p][::-1]) if turn else tuple(size[p]) for p, _ in copies]
+        found = grid(sizes, (bed[0], bed[1]), ar["spacing"], ar["align"], edge)
+        if found and (best is None or found[1] < best[1] - 1e-6):
+            best = (found[0], found[1], turn)
+    if best is None:
+        return None, (f"The copies do not fit on the bed in a grid {ar['spacing']:g} mm apart. "
+                      "Use less spacing, fewer copies, turn on 'Turn copies to fit', or use the auto layout.")
+    centers, _, turn = best
+    stls = []
+    for i, ((part, src), c) in enumerate(zip(copies, centers)):
+        dst = out / "copies" / str(i) / f"{part}.stl"  # the file name names the object in the G-code
+        part_settings.transform_stl(src, dst, [0, 0, turn], center=c)
+        stls.append(str(dst))
+    return stls, None
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 2 or argv[0] in ("-h", "--help"):
         print(__doc__)
@@ -94,26 +167,35 @@ def main(argv: list[str]) -> int:
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)
     try:
-        stls = [str(part_settings.placed_stl(p, WS)) for p, n in items.items() for _ in range(n)]
+        ar = part_settings.arrange(name, WS)
         files = part_settings.slicer_files(name, out, WS)
+        if ar["mode"] == "grid":
+            stls, why = place_grid(name, items, ar, out)
+            placing = ["--arrange", "0"]
+        else:
+            stls = [str(part_settings.placed_stl(p, WS)) for p, n in items.items() for _ in range(n)]
+            why, placing = None, ["--arrange", "1"] + (["--allow-rotations"] if ar["turn"] else [])
     except part_settings.SettingsError as e:
         raise SystemExit(f"settings: {e}")
-    cmd = orca_cmd() + stls + [
-        "--load-settings", f"{files['PROCESS']};{PRESETS}/printer.json",
-        "--load-filaments", files["FILAMENT"],
-        "--arrange", "1", "--orient", files["ORIENT"], "--slice", "0", "--outputdir", str(out)]
-    log = out / "orca.log"
-    with log.open("w") as fh:
-        rc = subprocess.run(cmd, cwd=WS, stdout=fh, stderr=subprocess.STDOUT).returncode
-    plates = sorted(out.glob("plate_*.gcode"))
     layout = {"name": name, "items": items, "created": time.time(), "copies": sum(items.values()),
-              "plates": len(plates), "objects": [], "fits": False, "error": None}
-    first = out / "plate_1.gcode"
-    if rc != 0 or not first.exists():
+              "arrange": ar, "plates": 0, "objects": [], "fits": False, "error": why}
+    rc, first = 1, out / "plate_1.gcode"
+    if stls:
+        cmd = orca_cmd() + stls + [
+            "--load-settings", f"{files['PROCESS']};{PRESETS}/printer.json",
+            "--load-filaments", files["FILAMENT"],
+            *placing, "--orient", files["ORIENT"], "--slice", "0", "--outputdir", str(out)]
+        log = out / "orca.log"
+        with log.open("w") as fh:
+            rc = subprocess.run(cmd, cwd=WS, stdout=fh, stderr=subprocess.STDOUT).returncode
+        layout["plates"] = len(list(out.glob("plate_*.gcode")))
+    if why:  # the grid does not fit: nothing was sliced
+        layout["objects"] = []
+    elif rc != 0 or not first.exists():
         layout["error"] = "OrcaSlicer failed: " + " | ".join(log.read_text(errors="replace").strip().splitlines()[-3:])
     else:
         layout["objects"] = objects(first)
-        layout["fits"] = len(plates) == 1 and len(layout["objects"]) == layout["copies"]
+        layout["fits"] = layout["plates"] == 1 and len(layout["objects"]) == layout["copies"]
         if not layout["fits"]:
             layout["error"] = (f"Only {len(layout['objects'])} of {layout['copies']} copies fit on the bed. "
                                "Remove some copies or make the parts smaller.")

@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-10-19
+- Printwright 1.1.1 (`web/pyproject.toml`, `web/uv.lock`) — GitHub release with the theme button and the parts header fix.
 - Theme button in the top bar: auto (system setting), light or dark, kept in the browser; set before the first paint, so the page does not flash (`web/static/index.html`, `web/static/app.js`, `FEATURES.md`) — the dark colours were there but only followed the system setting.
 - The parts header keeps Import…, Plate… and ↻ on one line; below 1100 px the "Parts" title hides (`web/static/style.css`) — the Import button pushed ↻ to a second line.
 - The README demo GIF shows the light and the dark theme at once, split on the diagonal from top left to bottom right (`docs/screenshots/demo.gif`, `README.md`) — the user asked for it.

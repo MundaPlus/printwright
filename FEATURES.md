@@ -46,6 +46,7 @@ The README covers the install. This file lists what Printwright can do.
   - The server parses each G-code once and keeps a cache next to it in `gcode/`.
 - **Downloads.** Download the STL or the G-code of a part.
 - **Phone layout.** On a small screen, tabs switch between Parts, View and Chat.
+- **Light and dark theme.** The ◐ button in the top bar switches between auto (the system setting), light (☀) and dark (☾). The browser keeps the choice.
 
 ## Slicing
 

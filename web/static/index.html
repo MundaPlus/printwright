@@ -7,6 +7,10 @@
   <meta name="color-scheme" content="light dark">
   <title>Printwright</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='4' y='20' width='24' height='6' rx='1.5' fill='%233b82f6'/><path d='M10 20 L16 8 L22 20 Z' fill='%23f2c230'/></svg>">
+  <script>
+    // Theme before the first paint: "light" or "dark" from the theme button, else the system setting.
+    try { const t = localStorage.getItem("pw-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch {}
+  </script>
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/layers.css">
   <link rel="stylesheet" href="/static/slicing.css">
@@ -36,6 +40,7 @@
       <span id="printer-progress" class="progress" hidden><span></span></span>
       <button id="printer-cancel" class="btn small danger" hidden>Cancel print</button>
     </div>
+    <button id="theme-toggle" class="btn small ghost icon" title="Theme: auto" aria-label="Theme">◐</button>
     <button id="settings-open" class="btn small ghost icon" title="Settings: printer, bed size, material" aria-label="Settings">⚙</button>
   </header>
 

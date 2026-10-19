@@ -31,7 +31,14 @@ import workspace  # noqa: E402  (lib/workspace.py)
 
 WS = workspace.find_workspace()
 NAME_RE = re.compile(r"^[a-z0-9_]+$")
-CADGEN_PY = ["uvx", "--no-config", "--managed-python", "--python", "3.13", "--from", "cadgen==0.7.21", "python"]
+CADGEN_PY = ["uvx", "--no-config", "--managed-python", "--python", "3.13", "--from", "cadgen==0.7.24", "python"]
+
+
+def cadgen_py(name: str) -> list[str]:
+    """cadgen's Python for this part. A mesh part also gets the mesh libraries."""
+    if workspace.part_kind(WS / "src" / f"{name}.py") == "mesh":
+        return CADGEN_PY[:-1] + workspace.MESH_WITH + ["python"]
+    return CADGEN_PY
 JOB_TIMEOUT = 900  # seconds per step
 # G-code config keys the page shows. Orca writes them at the end of the file.
 GCODE_KEYS = {"filament_type", "filament_settings_id", "nozzle_temperature", "nozzle_temperature_initial_layer",
@@ -141,7 +148,19 @@ def settings_view(name: str, kind: str) -> dict:
     size = None
     if kind == "part" and head and (WS / "STL" / f"{name}.stl").is_file():
         size = stl_xy(placed_stl_path(name))
-    return {**eff, "sliced": head, "stale": stale_keys(eff, head, size), "job": job_state(name)}
+    stale = stale_keys(eff, head, size)
+    if kind == "plate" and head and plate_arrange(name) not in (None, eff["arrange"]):
+        stale.append("arrange")
+    return {**eff, "sliced": head, "stale": stale, "job": job_state(name)}
+
+
+def plate_arrange(name: str) -> dict | None:
+    """The layout settings of the last arranged plate. Plates from before this setting used the default."""
+    try:
+        layout = json.loads((WS / "gcode" / f"{name}.layout.json").read_text())
+    except (OSError, ValueError):
+        return None
+    return layout.get("arrange") or part_settings.DEFAULT_ARRANGE
 
 
 @router.get("/materials")
@@ -218,7 +237,7 @@ async def run_job(name: str):
                 raise RuntimeError("Slicing failed: " + " | ".join(out.strip().splitlines()[-4:]))
             job.update(step="view", text="Updating the bed view…", sliced=time.time())
             if (WS / "src" / f"{name}.py").is_file():
-                rc, out = await _run(CADGEN_PY + [f"src/{name}.py", "--force"])
+                rc, out = await _run(cadgen_py(name) + [f"src/{name}.py", "--force"])
                 errors = [ln for ln in out.splitlines() if re.search(r"error|Error", ln)]
                 if rc != 0 or errors:
                     job["warning"] = "The bed view was not updated: " + " | ".join((errors or out.splitlines())[-2:])
@@ -234,6 +253,8 @@ async def reslice(name: str):
     """Slice one part again with its settings. The CAD model is not rebuilt."""
     if target(name) != "part":
         raise HTTPException(400, "Use Arrange on plate to slice a plate again.")
+    if workspace.part_kind(WS / "src" / f"{name}.py") == "gcode":
+        raise HTTPException(400, f"{name} is an imported G-code. Ask Claude in the chat to change it.")
     if not (WS / "STL" / f"{name}.stl").is_file():
         raise HTTPException(409, f"{name} is not built yet.")
     running = next((j for j in JOBS.values() if j["state"] == "running"), None)

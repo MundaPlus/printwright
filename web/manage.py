@@ -27,6 +27,7 @@ from fastapi import APIRouter, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 import app as core  # noqa: E402  (web/app.py, already loaded: it imports this module at its end)
+import workspace  # noqa: E402  (lib/workspace.py, on the path from app.py)
 
 router = APIRouter(prefix="/api/manage")
 WS: Path = core.WS
@@ -82,6 +83,14 @@ def generated_files(name: str) -> list[Path]:
     return found
 
 
+def import_files(name: str) -> list[Path]:
+    """The imported file of a part (imports/<name>.stl or .gcode, in git). web/importer.py writes it."""
+    folder = WS / "imports"
+    if not folder.is_dir():
+        return []
+    return [inside(f) for f in folder.iterdir() if f.is_file() and f.name.split(".")[0] == name]
+
+
 def part_presets(name: str) -> Path:
     """Per-part Orca overrides in the workspace (tracked in git)."""
     return WS / "presets" / "parts" / f"{name}.json"
@@ -135,12 +144,29 @@ def _decorator_outs(fn: ast.FunctionDef) -> list[str]:
 
 
 def check_pattern(text: str, name: str) -> str | None:
-    """None when the file follows the part pattern for this name, else the reason."""
+    """None when the file follows the part pattern for this name, else the reason.
+
+    Imported parts (web/importer.py) have their own patterns: "gcode" names its files
+    only in strings, "mesh" writes its STL itself and calls on_bed_mesh().
+    """
     try:
         tree = ast.parse(text)
     except SyntaxError as e:
         return f"the file has a syntax error (line {e.lineno})"
+    m = workspace.KIND_RE.search(text[:2000])
+    kind = m.group(1) if m else "cad"
+    if kind == "gcode":
+        for path in (f"../imports/{name}.gcode", f"../gcode/{name}.gcode"):
+            if f'"{path}"' not in text and f"'{path}'" not in text:
+                return f'the file does not name "{path}"'
+        return None
     funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    if kind == "mesh":
+        if name not in funcs or f"{name}_on_bed" not in funcs:
+            return f"there is no top-level function {name}() and {name}_on_bed()"
+        if not re.search(rf"""on_bed_mesh\(.*["']{name}["']""", text):
+            return f'there is no on_bed_mesh(..., "{name}", ...) call'
+        return None
     if name not in funcs:
         return f"there is no top-level function {name}()"
     if f"{name}_on_bed" not in funcs:
@@ -169,6 +195,11 @@ def rename_source(text: str, old: str, new: str) -> str:
     ]
     for pat, rep in subs:
         text = re.sub(pat, rep, text)
+    # The file's top docstring names the part and its files (imported parts, web/importer.py).
+    m = re.match(r'\s*("""|\'\'\')(.*?)\1', text, re.S)
+    if m:
+        doc = re.sub(rf"(?<![\w]){o}(?![\w])", new, m.group(2))
+        text = text[:m.start(2)] + doc + text[m.end(2):]
     why = check_pattern(text, new)
     leftover = _leftover_names(text, old)
     if why or leftover:
@@ -239,6 +270,9 @@ async def delete_part(name: str):
         if pre.is_file():
             inside(pre).unlink()
             removed.append(str(pre.relative_to(WS)))
+        for f in import_files(name):  # git keeps it in the history, like the part file
+            f.unlink()
+            removed.append(str(f.relative_to(WS)))
         for proj in projects_with(name):
             proj["parts"] = [p for p in proj.get("parts", []) if p != name]
             if name in (proj.get("plate") or {}):
@@ -265,7 +299,7 @@ async def rename_part(name: str, request: Request):
     if new.endswith("_on_bed") or new in ("lib", "plate") or new.startswith("plate_"):
         raise HTTPException(400, f"{new} is a reserved name. Choose another name.")
     dest = WS / "src" / f"{new}.py"
-    if dest.exists() or (WS / "STL" / f"{new}.stl").exists() or part_presets(new).exists():
+    if dest.exists() or (WS / "STL" / f"{new}.stl").exists() or part_presets(new).exists() or import_files(new):
         raise HTTPException(409, f"A part {new} exists already. Choose another name.")
     text = rename_source(src.read_text(), name, new)  # refuses before anything changes
     async with LOCK:
@@ -277,6 +311,8 @@ async def rename_part(name: str, request: Request):
         pre = part_presets(name)
         if pre.is_file():
             inside(pre).rename(part_presets(new))
+        for f in import_files(name):
+            f.rename(f.with_name(new + f.name[len(name):]))
         for proj in projects_with(name):
             proj["parts"] = sorted({new if p == name else p for p in proj.get("parts", [])})
             if name in (proj.get("plate") or {}):

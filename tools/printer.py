@@ -90,8 +90,11 @@ def upload(path, start=False):
 WARMUP_MIN = 3.0  # heat, home, bed mesh before the first layer; median of past prints
 
 
+FILAMENT_G_PER_M = 2.98  # 1.75 mm PLA (1.24 g/cm3): grams per metre, for Cura files that give only metres
+
+
 def gcode_info(path):
-    """Read Orca's summary comments from a sliced file."""
+    """Read the slicer's summary comments: OrcaSlicer and PrusaSlicer ("; key = value"), or Cura (";KEY:value")."""
     info = {}
     with open(path, errors="replace") as f:
         for line in f:
@@ -104,6 +107,15 @@ def gcode_info(path):
             for key in ("total filament used [g]", "filament_type", "layer_height"):
                 if line.startswith(f"; {key} = "):
                     info[key] = line.split(" = ", 1)[1].strip()
+            m = re.match(r";TIME:(\d+(?:\.\d+)?)\s*$", line)  # Cura: seconds
+            if m and "orca_min" not in info:
+                info["orca_min"] = float(m.group(1)) / 60
+            m = re.match(r";Filament used: ([\d.]+)m", line)  # Cura: metres
+            if m and "total filament used [g]" not in info:
+                info["total filament used [g]"] = str(round(float(m.group(1)) * FILAMENT_G_PER_M, 2))
+            m = re.match(r";Layer height: ([\d.]+)", line)
+            if m and "layer_height" not in info:
+                info["layer_height"] = m.group(1)
     return info
 
 
@@ -126,15 +138,15 @@ def calibration():
 def estimate(path):
     info = gcode_info(path)
     factor, n, warmup = calibration()
-    total = info["orca_min"] * factor + warmup
+    slicer_min = info.get("orca_min")  # None: the file names no print time (an imported G-code)
     result = {
-        "total_min": round(total, 1),
-        "orca_min": round(info["orca_min"], 1),
+        "total_min": round(slicer_min * factor + warmup, 1) if slicer_min is not None else None,
+        "orca_min": round(slicer_min, 1) if slicer_min is not None else None,
         "factor": round(factor, 3),
         "factor_from_prints": n,
         "warmup_min": round(warmup, 1),
         "grams": float(info.get("total filament used [g]", 0)),
-        "material": info.get("filament_type", "?"),
+        "material": info.get("filament_type", "").strip('"') or "?",
         "layer_height": float(info.get("layer_height", 0)),
     }
     with open(os.path.splitext(path)[0] + ".json", "w") as f:
@@ -175,9 +187,9 @@ def main(argv):
     elif cmd == "estimate":
         r = estimate(args[0])
         basis = f"factor {r['factor']} from {r['factor_from_prints']} prints" if r["factor_from_prints"] else "not calibrated yet"
-        print(f"print time: ~{fmt_min(r['total_min'])} "
-              f"(Orca {fmt_min(r['orca_min'])}, {basis}, + {r['warmup_min']} min warm-up) | "
-              f"{r['grams']} g {r['material']} | {r['layer_height']} mm layers")
+        when = "unknown (the file names no print time)" if r["total_min"] is None else \
+            f"~{fmt_min(r['total_min'])} (Orca {fmt_min(r['orca_min'])}, {basis}, + {r['warmup_min']} min warm-up)"
+        print(f"print time: {when} | {r['grams']} g {r['material']} | {r['layer_height']} mm layers")
     elif cmd == "cancel":
         api("/printer/print/cancel", data=b"", method="POST")
         print("cancelled")

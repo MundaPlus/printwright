@@ -9,7 +9,7 @@ process.json, and they go over process.json when the part is sliced:
    "material": "PETG",
    "placement": {"rotate": [0, 0, 90], "auto_orient": false}}
 
-Two keys belong to Printwright, not to OrcaSlicer:
+Three keys belong to Printwright, not to OrcaSlicer:
 
   material    the filament preset. "PETG" uses presets/filaments/petg.json.
               No material: printwright.json "material". When that is the type of
@@ -18,6 +18,13 @@ Two keys belong to Printwright, not to OrcaSlicer:
               X and Y take 0, 90, 180 or 270; Z takes any angle.
               auto_orient: OrcaSlicer turns the part (--orient 1). The bed view
               then shows the part as designed, not as printed.
+  arrange     plates only: how tools/plate.py puts the copies on the bed.
+              {"mode": "auto", "spacing": 5, "align": "center", "turn": false}
+              mode "auto": OrcaSlicer packs the copies tight (about 2 mm apart).
+              mode "grid": rows of copies, "spacing" mm apart, at "align":
+              center, front_left, front_right, back_left or back_right.
+              turn: copies may turn around Z to fit (auto: OrcaSlicer turns
+              each copy; grid: all copies turn 90 degrees when that fits better).
 
 The slicer and the bed view (lib/bed.py) read the same file, so both agree.
 A plate (tools/plate.py) uses its own file presets/parts/plate_<project>.json for
@@ -51,7 +58,7 @@ except ImportError:  # as a script or with lib/ on sys.path
 
 APP = Path(__file__).resolve().parents[1]
 NAME_RE = re.compile(r"^[a-z0-9_]+$")
-OWN_KEYS = ("material", "placement")  # Printwright keys; never passed to OrcaSlicer
+OWN_KEYS = ("material", "placement", "arrange")  # Printwright keys; never passed to OrcaSlicer
 
 # Fields the settings panel edits. Values are OrcaSlicer process keys and values.
 # Pattern names are checked against OrcaSlicer 2.4.2: it turns an unknown name
@@ -90,6 +97,10 @@ ORCA_DEFAULTS = {"brim_type": "auto_brim", "brim_width": "5", "support_on_build_
                  "support_threshold_angle": "30", "support_type": "normal(auto)", "enable_support": "0"}
 AXIS_STEPS = (0, 90, 180, 270)
 NO_PLACEMENT = {"rotate": [0.0, 0.0, 0.0], "auto_orient": False}
+ARRANGE_MODES = ("auto", "grid")
+ALIGNS = ("center", "front_left", "front_right", "back_left", "back_right")
+DEFAULT_ARRANGE = {"mode": "auto", "spacing": 5.0, "align": "center", "turn": False}
+MAX_SPACING = 50
 
 
 class SettingsError(ValueError):
@@ -204,6 +215,39 @@ def placement(name: str, ws: Path | None = None, raw: dict | None = None) -> dic
     return {"rotate": rot, "auto_orient": bool(p.get("auto_orient"))}
 
 
+def arrange(name: str, ws: Path | None = None, raw: dict | None = None) -> dict:
+    """How a plate puts its copies on the bed. Bad or missing values give the defaults."""
+    raw = load(name, ws) if raw is None else raw
+    a = raw.get("arrange")
+    if not isinstance(a, dict):
+        return dict(DEFAULT_ARRANGE)
+    try:
+        return clean_arrange(a)
+    except SettingsError:
+        return dict(DEFAULT_ARRANGE)
+
+
+def clean_arrange(value) -> dict:
+    if not isinstance(value, dict):
+        raise SettingsError("arrange must be an object.")
+    out = {**DEFAULT_ARRANGE, **{k: value[k] for k in DEFAULT_ARRANGE if k in value}}
+    if out["mode"] not in ARRANGE_MODES:
+        raise SettingsError("Layout: choose auto or grid.")
+    if out["align"] not in ALIGNS:
+        raise SettingsError("Position: choose center, front_left, front_right, back_left or back_right.")
+    try:
+        spacing = float(out["spacing"])
+        if not math.isfinite(spacing):
+            raise ValueError
+    except (TypeError, ValueError):
+        raise SettingsError("Spacing: give a number in mm.")
+    if not 0 <= spacing <= MAX_SPACING:
+        raise SettingsError(f"Spacing: give 0 to {MAX_SPACING} mm.")
+    out["spacing"] = round(spacing, 2)
+    out["turn"] = bool(out["turn"])
+    return out
+
+
 def is_turned(pl: dict) -> bool:
     return any(abs(v % 360) > 1e-9 for v in pl["rotate"])
 
@@ -240,10 +284,18 @@ def _read_stl(path: Path) -> list[tuple]:
     return [tuple(verts[i:i + 3]) for i in range(0, len(verts) - 2, 3)]
 
 
-def transform_stl(src: Path, dst: Path, rot: list[float]) -> list[float]:
+def stl_size(path: Path) -> list[float]:
+    """Bounding box size [x, y, z] of an STL in mm."""
+    tris = _read_stl(path)
+    if not tris:
+        raise SettingsError(f"{path} holds no triangles.")
+    return [round(max(v[a] for t in tris for v in t) - min(v[a] for t in tris for v in t), 2) for a in range(3)]
+
+
+def transform_stl(src: Path, dst: Path, rot: list[float], center: tuple[float, float] = (0.0, 0.0)) -> list[float]:
     """Write src turned by rot (degrees X, Y, Z) as a binary STL.
 
-    The result sits with its bottom on Z=0, centred on X=0, Y=0. Returns the size [x, y, z].
+    The result sits with its bottom on Z=0, centred on X, Y = center. Returns the size [x, y, z].
     """
     r = rotation_matrix(*rot)
     out = []
@@ -253,7 +305,7 @@ def transform_stl(src: Path, dst: Path, rot: list[float]) -> list[float]:
         raise SettingsError(f"{src} holds no triangles.")
     lo = [min(v[a] for t in out for v in t) for a in range(3)]
     hi = [max(v[a] for t in out for v in t) for a in range(3)]
-    shift = [-(lo[0] + hi[0]) / 2, -(lo[1] + hi[1]) / 2, -lo[2]]
+    shift = [center[0] - (lo[0] + hi[0]) / 2, center[1] - (lo[1] + hi[1]) / 2, -lo[2]]
     buf = bytearray(b"Printwright placed STL".ljust(80, b" "))
     buf += struct.pack("<I", len(out))
     for t in out:
@@ -363,7 +415,7 @@ def clean_placement(value) -> dict:
 def update(name: str, body: dict, kind: str = "part", ws: Path | None = None) -> dict:
     """Check the panel values and write <workspace>/presets/parts/<name>.json.
 
-    body: {"values": {key: value}, "material": "PETG" | "", "placement": {...}}.
+    body: {"values": {key: value}, "material": "PETG" | "", "placement": {...}, "arrange": {...}}.
     A value equal to the default is removed. Keys the panel does not know stay.
     Returns the new file content.
     """
@@ -396,6 +448,10 @@ def update(name: str, body: dict, kind: str = "part", ws: Path | None = None) ->
         pl = clean_placement(body["placement"]) if "placement" in body else placement(name, ws, raw)
         if is_turned(pl) or pl["auto_orient"]:
             out["placement"] = pl
+    else:
+        ar = clean_arrange(body["arrange"]) if "arrange" in body else arrange(name, ws, raw)
+        if ar != DEFAULT_ARRANGE:
+            out["arrange"] = ar
     path = ws / "presets" / "parts" / f"{name}.json"
     if out:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -426,6 +482,8 @@ def effective(name: str, kind: str = "part", ws: Path | None = None) -> dict:
                      "options": [{k: m[k] for k in ("id", "type", "name", "nozzle", "nozzle_first", "bed", "bed_first",
                                                     "source")} for m in mats]},
         "placement": placement(name, ws, raw) if kind == "part" else None,
+        "arrange": arrange(name, ws, raw) if kind == "plate" else None,
+        "arrange_defaults": DEFAULT_ARRANGE if kind == "plate" else None,
         "updated": sf.stat().st_mtime if sf else None,
     }
 

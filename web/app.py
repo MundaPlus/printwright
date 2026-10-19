@@ -60,7 +60,7 @@ def config() -> dict:
         return CONFIG  # keep the last good config when the file is broken
 
 
-CADGEN = "uvx --no-config --managed-python --python 3.13 --from cadgen==0.7.21"
+CADGEN = "uvx --no-config --managed-python --python 3.13 --from cadgen==0.7.24"
 ALLOWED_TOOLS = [
     "Read", "Write", "Edit", "Glob", "Grep", "Skill", "TodoWrite",
     "Bash(tools/make.sh:*)", "Bash(./tools/make.sh:*)", "Bash(tools/slice.sh:*)",
@@ -92,6 +92,15 @@ and {material}.
   New part files you create join that project by themselves. Do not edit projects/*/project.json.
 - {owner} can attach pictures, drawings or files. They are in projects/<id>/files/. Open them with Read.
 - Several parts on one plate: {owner} does that in the page (Plate button). Do not slice plates yourself.
+- Imported parts: {owner} can import an STL or a G-code (Import button). The file is in imports/ and
+  never changes. The part file says its kind. See "Imported parts" in CLAUDE.md.
+  - STL, small: a CAD solid. Edit it with build123d like other parts.
+  - STL, big ("# printwright: mesh"): edit it with manifold3d mesh booleans. No face selection.
+    Review it with `cadgen stl snapshot STL/<part>.stl tmp/<part>.png`.
+  - G-code ("# printwright: gcode"): only text edits in edit(): nozzle_temp, bed_temp, fan, speed,
+    flow, pause_at_layer, pause_at_height, insert_at_layer. It has no model and no print settings.
+    To change its shape, ask {owner} to import the STL.
+  After an edit run `tools/make.sh <part>` as usual.
 - Print settings (infill, walls, supports, brim, layer height, material, turn on the bed) live in
   presets/parts/<part>.json. See "Print settings" in CLAUDE.md. Edit that file when {owner} asks
   (for example "use tree supports"), then run `tools/make.sh <part>`.
@@ -99,7 +108,7 @@ and {material}.
   or anything outside this workspace.
 - Do not run git. The app commits your changes after each reply.
 - "cadgen" in the skill docs means the full command
-  `uvx --no-config --managed-python --python 3.13 --from cadgen==0.7.21 cadgen`. Use it for snapshots.
+  `uvx --no-config --managed-python --python 3.13 --from cadgen==0.7.24 cadgen`. Use it for snapshots.
 - Write short, simple sentences (ASD-STE100), under 20 words, active voice. Keep replies short.
 """
 
@@ -160,21 +169,35 @@ def stl_size(path: Path) -> list[float] | None:
 
 
 def part_info(name: str) -> dict:
+    """What the page shows for one part. kind: "cad", or an import: "mesh" or "gcode" (web/importer.py)."""
     src = WS / "src" / f"{name}.py"
     stl = WS / "STL" / f"{name}.stl"
     glb = WS / "GLB" / f"{name}_on_bed.glb"
     gcode = WS / "gcode" / f"{name}.gcode"
     stats = WS / "gcode" / f"{name}.json"
-    info = {"name": name, "updated": src.stat().st_mtime, "glb": None, "size": None,
-            "stats": None, "gcode_ready": False}
+    kind = workspace.part_kind(src)
+    info = {"name": name, "kind": kind, "updated": src.stat().st_mtime, "glb": None, "mesh": None,
+            "size": None, "stats": None, "gcode_ready": False, "warnings": []}
     if glb.exists():
         info["glb"] = f"/files/glb/{name}?v={int(glb.stat().st_mtime)}"
         info["updated"] = max(info["updated"], glb.stat().st_mtime)
     if stl.exists():
-        info["size"] = stl_size(placed_stl_path(name))  # size as it lies on the bed
+        placed = placed_stl_path(name)
+        info["size"] = stl_size(placed)  # size as it lies on the bed
+        if kind == "mesh":  # the bed view has no mesh: the page draws this STL on it
+            info["mesh"] = f"/api/slicing/placed-stl/{name}?v={int(placed.stat().st_mtime)}"
     if stats.exists():
         info["stats"] = json.loads(stats.read_text())
-    if gcode.exists() and stl.exists():
+    if kind == "gcode":
+        meta = WS / "gcode" / f"{name}.meta.json"
+        if meta.exists():
+            m = json.loads(meta.read_text())
+            info.update(size=m.get("size"), warnings=m.get("warnings", []), edits=m.get("edits", []),
+                        layers=m.get("layers"), slicer=m.get("slicer"), printer_model=m.get("printer_model"))
+        if gcode.exists():
+            info["updated"] = max(info["updated"], gcode.stat().st_mtime)
+            info["gcode_ready"] = gcode.stat().st_mtime >= src.stat().st_mtime
+    elif gcode.exists() and stl.exists():
         info["gcode_ready"] = gcode.stat().st_mtime >= stl.stat().st_mtime
     return info
 
@@ -383,6 +406,8 @@ async def make_plate(pid: str, request: Request):
     for p in items:
         if p not in proj.get("parts", []):
             raise HTTPException(400, f"{p} is not in this project.")
+        if workspace.part_kind(WS / "src" / f"{p}.py") == "gcode":
+            raise HTTPException(400, f"{p} is an imported G-code. It cannot go on a plate.")
         if not (WS / "STL" / f"{p}.stl").exists():
             raise HTTPException(409, f"{p} is not built yet.")
     if PLATE_LOCK.locked():
@@ -526,7 +551,7 @@ def tool_summary(name: str, inp: dict) -> str:
     return name
 
 
-COMMIT_PATHS = ["src", "presets", "projects", "CLAUDE.md", "CHANGELOG.md"]
+COMMIT_PATHS = ["src", "presets", "projects", "imports", "CLAUDE.md", "CHANGELOG.md"]
 
 
 def commit_changes(message: str, prefix: str = "Web chat: ", paths: list[str] | None = None):
@@ -621,9 +646,10 @@ async def run_claude(run: Run, part: str | None, project: str | None, files: lis
     except Exception as ex:  # report, never hang the page
         await run.emit({"type": "error", "text": f"{type(ex).__name__}: {ex}"})
     finally:
-        changed = [p for p in part_names()
-                   if (WS / "GLB" / f"{p}_on_bed.glb").exists()
-                   and (WS / "GLB" / f"{p}_on_bed.glb").stat().st_mtime >= run.started]
+        def output(p: str) -> Path:  # the file a build writes last: the bed view, or the G-code of an import
+            gcode_part = workspace.part_kind(WS / "src" / f"{p}.py") == "gcode"
+            return WS / "gcode" / f"{p}.gcode" if gcode_part else WS / "GLB" / f"{p}_on_bed.glb"
+        changed = [p for p in part_names() if output(p).exists() and output(p).stat().st_mtime >= run.started]
         if run.session_id:
             save_chat(run.session_id, run.message, reply, tools, part, project, files)
         new_parts = sorted(set(part_names()) - before)
@@ -877,5 +903,8 @@ async def index():
 # Manage parts and projects, settings (web/manage.py). Imported last: it imports this module.
 from manage import router as manage_router  # noqa: E402
 app.include_router(manage_router)
+# Import STL and G-code files as parts (web/importer.py). It uses manage.py.
+from importer import router as import_router  # noqa: E402
+app.include_router(import_router)
 
 app.mount("/static", StaticFiles(directory=WEB / "static"), name="static")

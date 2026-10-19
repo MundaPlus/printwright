@@ -1,6 +1,16 @@
 # Changelog
 
+## 2026-10-19
+- Import STL and G-code files as parts: Import… button in the parts panel, up to 100 MB; the file goes into `imports/` and a part file is written from a template (`web/importer.py`, `web/static/manage.js`, `web/static/index.html`, `web/app.py`, `FEATURES.md`, `templates/CLAUDE.workspace.md`) — users want to change and print models they did not design here.
+- Small STL files (up to 20 000 triangles) load as one build123d solid; bigger or broken ones become mesh parts with fast manifold3d booleans, and the page draws the mesh on the bed view (`lib/mesh.py`, `lib/bed.py` `on_bed_mesh`, `lib/workspace.py` `part_kind`/`MESH_WITH`, `tools/make.sh`, `web/slicing.py`, `web/static/app.js`) — a CAD solid from a big mesh takes minutes, mesh booleans take under a second.
+- G-code parts: text edits for temperatures, fan, speed, flow, pauses and own lines at a layer; size, slicer, printer and warnings in `gcode/<part>.meta.json`; the layer view opens by itself; no print settings and no plates (`lib/gcode_edit.py`, `web/static/app.js`, `web/static/layers.js`, `web/static/slicing.js`) — the toolpaths of a G-code cannot become a model again.
+- The estimate also reads Cura files and allows a file without a print time (`tools/printer.py`) — imported G-code comes from other slicers.
+- `tools/make.sh` stops when the model build fails, and no longer slices an old STL (`tools/make.sh`) — a failed build looked like a success.
+- Rename and delete also move or remove the imported file and rename the part in the file's top docstring (`web/manage.py`) — imported parts keep their files together.
+- Use cadgen 0.7.24, was 0.7.21 (`web/app.py`, `web/slicing.py`, `tools/make.sh`) — the text-to-cad plugin moved to 0.7.24. The pin must match the plugin, so the app and the plugin share one cadgen install and build daemon. New in 0.7.22–0.7.24: Quick Edit sends several refs on one line, approximate measurements on meshes, new mesh snapshot options.
+
 ## 2026-10-15
+- Plate layout choices: auto (OrcaSlicer packs tight, optional turn) or grid (rows with spacing, centre or a corner, optional 90° turn); stored as `arrange` in the plate's settings file, set in the plate settings panel, marked stale when it changed (`lib/part_settings.py`, `tools/plate.py`, `web/slicing.py`, `web/static/slicing.js`, `FEATURES.md`, `templates/CLAUDE.workspace.md`) — users want to choose how the copies sit on the plate. OrcaSlicer's command line has no spacing option, so the grid places the copies itself and slices with `--arrange 0`.
 - First layer gets a 5 mm auto brim by default (`presets/process.json`: `brim_type` auto_brim, `brim_width` 5, was 0) — parts and plates had only the skirt, which gives little bed grip.
 
 ## 2026-10-13

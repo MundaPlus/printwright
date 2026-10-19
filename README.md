@@ -6,7 +6,7 @@ Printwright turns a short description into a printed part. You describe the part
 A web app shows the part on your printer bed with rulers, the print time and the filament.
 When the part looks right, you press Print. The app sends it to your Klipper printer through Moonraker.
 
-![A part on the bed with X, Y and Z rulers](docs/screenshots/bed-view.png)
+![Choose a part, turn the bed view, then step through the sliced layers](docs/screenshots/demo.gif)
 
 See [FEATURES.md](FEATURES.md) for the full feature list.
 

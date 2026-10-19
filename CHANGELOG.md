@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-10-19
+- Demo GIF at the top of the README: choose a part, change the camera view, step through the sliced layers (`README.md`, `docs/screenshots/demo.gif`) — a moving demo shows the app faster than a still picture. It replaces the bed-view screenshot there. The picture stays in `docs/screenshots/`.
 - Printwright 1.1 (`web/pyproject.toml`, `web/uv.lock`) — first tagged GitHub releases: v1.0.0 for the 2026-10-13 release, v1.1.0 for plate layouts, the auto brim, cadgen 0.7.24 and the import of STL and G-code.
 - Import STL and G-code files as parts: Import… button in the parts panel, up to 100 MB; the file goes into `imports/` and a part file is written from a template (`web/importer.py`, `web/static/manage.js`, `web/static/index.html`, `web/app.py`, `FEATURES.md`, `templates/CLAUDE.workspace.md`) — users want to change and print models they did not design here.
 - Small STL files (up to 20 000 triangles) load as one build123d solid; bigger or broken ones become mesh parts with fast manifold3d booleans, and the page draws the mesh on the bed view (`lib/mesh.py`, `lib/bed.py` `on_bed_mesh`, `lib/workspace.py` `part_kind`/`MESH_WITH`, `tools/make.sh`, `web/slicing.py`, `web/static/app.js`) — a CAD solid from a big mesh takes minutes, mesh booleans take under a second.

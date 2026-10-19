@@ -11,7 +11,7 @@ WS="$(python3 "$APP/lib/workspace.py" root)"
 export PRINTWRIGHT_WORKSPACE="$WS"
 PART="${1:?usage: tools/make.sh <part> [Orca overrides]}"; shift
 [ -f "$WS/src/$PART.py" ] || { echo "no part file: $WS/src/$PART.py" >&2; exit 1; }
-PY=(uvx --no-config --managed-python --python 3.13 --from cadgen==0.7.21 python)
+PY=(uvx --no-config --managed-python --python 3.13 --from cadgen==0.7.24 python)
 cd "$WS"
 "${PY[@]}" "src/$PART.py" 2>&1 | grep -E "wrote|error|Error" || true
 "$APP/tools/slice.sh" "STL/$PART.stl" "$@"

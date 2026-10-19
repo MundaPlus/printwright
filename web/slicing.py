@@ -31,7 +31,7 @@ import workspace  # noqa: E402  (lib/workspace.py)
 
 WS = workspace.find_workspace()
 NAME_RE = re.compile(r"^[a-z0-9_]+$")
-CADGEN_PY = ["uvx", "--no-config", "--managed-python", "--python", "3.13", "--from", "cadgen==0.7.21", "python"]
+CADGEN_PY = ["uvx", "--no-config", "--managed-python", "--python", "3.13", "--from", "cadgen==0.7.24", "python"]
 JOB_TIMEOUT = 900  # seconds per step
 # G-code config keys the page shows. Orca writes them at the end of the file.
 GCODE_KEYS = {"filament_type", "filament_settings_id", "nozzle_temperature", "nozzle_temperature_initial_layer",

@@ -60,7 +60,7 @@ def config() -> dict:
         return CONFIG  # keep the last good config when the file is broken
 
 
-CADGEN = "uvx --no-config --managed-python --python 3.13 --from cadgen==0.7.21"
+CADGEN = "uvx --no-config --managed-python --python 3.13 --from cadgen==0.7.24"
 ALLOWED_TOOLS = [
     "Read", "Write", "Edit", "Glob", "Grep", "Skill", "TodoWrite",
     "Bash(tools/make.sh:*)", "Bash(./tools/make.sh:*)", "Bash(tools/slice.sh:*)",
@@ -99,7 +99,7 @@ and {material}.
   or anything outside this workspace.
 - Do not run git. The app commits your changes after each reply.
 - "cadgen" in the skill docs means the full command
-  `uvx --no-config --managed-python --python 3.13 --from cadgen==0.7.21 cadgen`. Use it for snapshots.
+  `uvx --no-config --managed-python --python 3.13 --from cadgen==0.7.24 cadgen`. Use it for snapshots.
 - Write short, simple sentences (ASD-STE100), under 20 words, active voice. Keep replies short.
 """
 

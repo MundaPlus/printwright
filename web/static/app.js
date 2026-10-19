@@ -1008,6 +1008,23 @@ async function boot() {
   clearInterval(boot.timer);
   boot.timer = setInterval(pollPrinter, 5000);
 }
+
+// ---------- Theme ----------
+// The button cycles auto (system setting), light and dark. The script in index.html
+// sets data-theme before the first paint. The 3D view is transparent over --viewer-bg.
+const THEMES = { auto: ["◐", "Theme: auto (system setting)"], light: ["☀", "Theme: light"], dark: ["☾", "Theme: dark"] };
+function setTheme(t) {
+  if (t === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = t;
+  store.set("pw-theme", t === "auto" ? null : t);
+  $("theme-toggle").textContent = THEMES[t][0];
+  $("theme-toggle").title = THEMES[t][1];
+}
+setTheme(store.get("pw-theme") || "auto");
+$("theme-toggle").addEventListener("click", () => {
+  const order = Object.keys(THEMES);
+  setTheme(order[(order.indexOf(store.get("pw-theme") || "auto") + 1) % order.length]);
+});
 boot();
 
 // ---------- Hooks for other modules ----------

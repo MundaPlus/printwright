@@ -45,13 +45,14 @@
       <div class="panel-head">
         <h2>Parts</h2>
         <div>
+          <button id="parts-import" class="btn small" title="Import an STL or G-code file as a part. Claude can change it in the chat.">Import…</button>
           <button id="plate-toggle" class="btn small" title="Put several parts on one plate">Plate…</button>
           <button id="parts-refresh" class="btn small ghost" title="Refresh">↻</button>
         </div>
       </div>
       <p id="plate-help" class="muted pad small" hidden>Set how many of each part you want. Then arrange them on the plate.</p>
       <ul id="parts" class="parts"></ul>
-      <p id="parts-empty" class="muted pad" hidden>No parts yet. Describe one in the chat.</p>
+      <p id="parts-empty" class="muted pad" hidden>No parts yet. Describe one in the chat, or import an STL or G-code file.</p>
       <div id="plate-bar" class="plate-bar" hidden>
         <span id="plate-total" class="muted"></span>
         <button id="plate-arrange" class="btn small primary">Arrange on plate</button>
@@ -170,6 +171,7 @@
 
   <input type="file" id="file-input" multiple hidden
     accept="image/*,.pdf,.txt,.md,.csv,.stl,.step,.stp,.3mf,.obj,.dxf,.svg">
+  <input type="file" id="import-input" hidden accept=".stl,.gcode,.gco,.g">
 
   <!-- New project -->
   <div id="project-modal" class="overlay" hidden>

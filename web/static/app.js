@@ -54,6 +54,8 @@ const fmtMin = (m) => {
   return h ? `${h} h ${String(mm).padStart(2, "0")} min` : `${mm} min`;
 };
 const fmtSize = (s) => s ? `${s[0].toFixed(1)} × ${s[1].toFixed(1)} × ${s[2].toFixed(1)} mm` : "";
+// Print time of a stats object. An imported G-code may name no time (total_min null).
+const fmtTime = (s) => s?.total_min != null ? `~${fmtMin(s.total_min)}` : "time ?";
 const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 // ---------- Viewer ----------
@@ -158,26 +160,40 @@ function setView(kind) {
 document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
 
 const loader = new GLTFLoader();
-async function loadModel(url) {
-  if (state.loadedGlb === url) return;
-  state.loadedGlb = url;
+// meshUrl: a mesh part (an imported STL) has a bed view without the mesh. The page
+// draws the placed STL on it, centred on the bed like lib/bed.py places a part.
+async function loadModel(url, meshUrl = null) {
+  const key = `${url}|${meshUrl || ""}`;
+  if (state.loadedGlb === key) return;
+  state.loadedGlb = key;
   $("viewer-empty").hidden = true;
   $("viewer-loading").hidden = false;
   try {
     const gltf = await loader.loadAsync(url);
-    if (state.loadedGlb !== url) return; // a newer load won
+    const geo = meshUrl ? await stlGeometry(meshUrl) : null;
+    if (state.loadedGlb !== key) return; // a newer load won
     if (model) {
       scene.remove(model);
-      model.traverse((o) => { o.geometry?.dispose(); [].concat(o.material || []).forEach((m) => m.dispose()); });
+      model.traverse((o) => { if (!o.userData.shared) o.geometry?.dispose(); [].concat(o.material || []).forEach((m) => m.dispose()); });
     }
-    model = gltf.scene;
-    model.scale.setScalar(1000);
+    gltf.scene.scale.setScalar(1000);
+    model = new THREE.Group();
+    model.add(gltf.scene);
     model.traverse((o) => {
       if (o.isMesh) {
         o.material.side = THREE.DoubleSide;
         if ("roughness" in o.material) { o.material.roughness = 0.75; o.material.metalness = 0; }
       }
     });
+    if (geo) { // printer coordinates (mm, Z up), turned to three.js Y up
+      const g = new THREE.Group();
+      g.rotation.x = -Math.PI / 2;
+      const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x4c9be8, roughness: 0.75, side: THREE.DoubleSide }));
+      mesh.userData.shared = true; // the geometry stays in stlCache
+      mesh.position.set(BED.x / 2, BED.y / 2, 0);
+      g.add(mesh);
+      model.add(g);
+    }
     model.visible = !state.plateMode;
     scene.add(model);
     collectFlat();
@@ -272,7 +288,7 @@ async function showPlate(data) {
   $("info-size").textContent = l ? plateSummary(data) : "Nothing arranged yet";
   $("info-size").classList.toggle("warn", !!l && !l.fits);
   const s = data?.stats;
-  $("info-time").textContent = s ? `~${fmtMin(s.total_min)}` : l && !l.fits ? "does not fit" : "";
+  $("info-time").textContent = s ? fmtTime(s) : l && !l.fits ? "does not fit" : "";
   $("info-time").classList.toggle("warn", !!l && !data.ready);
   $("info-grams").textContent = s ? `${s.grams.toFixed(1)} g ${s.material}` : "";
   $("dl-stl").hidden = true;
@@ -345,13 +361,15 @@ function renderParts() {
   for (const p of state.parts) {
     const li = document.createElement("li");
     li.className = p.name === state.selected ? "active" : "";
-    const meta = [p.size ? fmtSize(p.size) : "not built", p.stats ? "~" + fmtMin(p.stats.total_min) : ""].filter(Boolean).join(" · ");
+    const kind = { gcode: "G-code", mesh: "mesh" }[p.kind] || "";
+    const meta = [kind, p.size ? fmtSize(p.size) : "not built", p.stats ? fmtTime(p.stats) : ""].filter(Boolean).join(" · ");
     li.innerHTML = `<div class="pname">${esc(p.name)}</div><div class="pmeta">${esc(meta)}</div>`;
     if (state.plateMode) {
       li.className = "plate-item";
       const n = document.createElement("input");
       Object.assign(n, { type: "number", min: 0, max: 50, value: state.counts[p.name] || 0, title: "Copies on the plate" });
-      n.disabled = !p.size;
+      n.disabled = !p.size || p.kind === "gcode";
+      if (p.kind === "gcode") n.title = "An imported G-code cannot go on a plate";
       n.addEventListener("input", () => { state.counts[p.name] = Math.max(0, Math.min(50, +n.value || 0)); plateTotal(); });
       li.appendChild(n);
     } else {
@@ -383,19 +401,32 @@ function showPart() {
   $("context-chip").hidden = !p;
   $("context-part").textContent = p?.name || "";
   $("info-name").textContent = p?.name || "—";
-  $("info-size").textContent = p?.size ? fmtSize(p.size) : "";
+  const warn = p?.warnings || [];
+  $("info-size").textContent = (p?.size ? fmtSize(p.size) : "") + (warn.length ? " ⚠" : "");
+  $("info-size").classList.toggle("warn", warn.length > 0);
+  $("info-size").title = warn.join("\n");
   const s = p?.stats;
-  $("info-time").textContent = s ? `~${fmtMin(s.total_min)}` : p ? "not sliced" : "";
+  $("info-time").textContent = s ? fmtTime(s) : p ? "not sliced" : "";
   $("info-time").classList.toggle("warn", !!p && !p.gcode_ready);
-  $("info-time").title = s ? `Orca ${fmtMin(s.orca_min)} × ${s.factor} + ${s.warmup_min} min warm-up` +
-    (s.factor_from_prints ? ` (factor from ${s.factor_from_prints} prints)` : " (not calibrated yet)") : "";
+  $("info-time").title = s?.orca_min == null ? (s ? "The G-code names no print time" : "")
+    : `Slicer ${fmtMin(s.orca_min)} × ${s.factor} + ${s.warmup_min} min warm-up` +
+    (s.factor_from_prints ? ` (factor from ${s.factor_from_prints} prints)` : " (not calibrated yet)");
   $("info-grams").textContent = s ? `${s.grams.toFixed(1)} g ${s.material} · ${s.layer_height} mm` : "";
-  for (const [id, kind, ok] of [["dl-stl", "stl", !!p?.size], ["dl-gcode", "gcode", !!p?.gcode_ready]]) {
+  for (const [id, kind, ok] of [["dl-stl", "stl", !!p?.size && p.kind !== "gcode"], ["dl-gcode", "gcode", !!p?.gcode_ready]]) {
     $(id).hidden = !ok;
     if (p) $(id).href = `/files/${kind}/${p.name}`;
   }
   updatePrintButton();
-  if (p?.glb) loadModel(p.glb); else clearModel();
+  if (p?.glb) loadModel(p.glb, p.mesh); else clearModel();
+  // An imported G-code has no 3D model: the page turns the layer view on for it,
+  // and off again for the next part when it turned it on itself.
+  if (p?.kind === "gcode") {
+    $("viewer-empty").hidden = true;
+    if (layers && !layers.state.on) { state.autoLayers = true; return layers.show(true); }
+  } else if (state.autoLayers) {
+    state.autoLayers = false;
+    if (layers?.state.on) layers.show(false);
+  }
   layers?.update(); // layers: show the new part's G-code
 }
 
@@ -442,14 +473,16 @@ $("print-btn").addEventListener("click", () => {
   const s = (state.plateMode ? state.plate?.stats : p.stats) || {};
   const head = state.plateMode
     ? [["Plate", plateSummary(state.plate)], ["Project", state.proj?.name || state.project]]
-    : [["Part", p.name], ["Size", fmtSize(p.size)]];
+    : [["Part", p.name + (p.kind === "gcode" ? " (imported G-code)" : "")], ["Size", fmtSize(p.size)],
+      ...(p.warnings || []).map((w) => ["⚠ Check", w])];
   $("print-details").innerHTML = [
     ...head,
-    ["Time", s.total_min ? `~${fmtMin(s.total_min)}` : "?"],
+    ["Time", fmtTime(s)],
     ["Filament", s.grams ? `${s.grams.toFixed(1)} g ${s.material}` : "?"],
     ["Layers", s.layer_height ? `${s.layer_height} mm` : "?"],
   ].map(([k, v]) => `<dt>${k}</dt><dd>${esc(String(v))}</dd>`).join("");
-  $("chk-fil-text").textContent = `${s.material || CONFIG.material || "The right filament"} is loaded.`;
+  const mat = s.material && s.material !== "?" ? s.material : CONFIG.material; // "?": the G-code names no material
+  $("chk-fil-text").textContent = `${mat || "The right filament"} is loaded.`;
   $("chk-bed").checked = $("chk-fil").checked = false;
   $("print-yes").disabled = true;
   $("print-error").hidden = true;
@@ -936,7 +969,7 @@ $("project-form").addEventListener("submit", async (e) => {
 });
 
 // ---------- Exports for manage.js ----------
-export { state, api, toast, esc, fmtMin, refreshParts, loadProjectList, openProject, setTab };
+export { state, api, toast, esc, fmtMin, refreshParts, loadProjectList, openProject, setTab, selectPart };
 
 // ---------- Boot ----------
 $("parts-refresh").addEventListener("click", () => refreshParts());

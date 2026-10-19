@@ -48,7 +48,9 @@ function current() {
   if (state.plateMode) {
     return state.project && state.project !== "unsorted" ? { name: `plate_${state.project}`, kind: "plate" } : null;
   }
-  return state.selected ? { name: state.selected, kind: "part" } : null;
+  // An imported G-code has no print settings: Claude edits the G-code itself.
+  const p = state.parts.find((x) => x.name === state.selected);
+  return state.selected && p?.kind !== "gcode" ? { name: state.selected, kind: "part" } : null;
 }
 
 const isOpen = () => !$("ps-wrap").hidden;

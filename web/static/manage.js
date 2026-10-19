@@ -1,8 +1,9 @@
 // Manage parts and projects, and the app settings (web/manage.py).
+// Import… in the parts panel turns an STL or G-code file into a part (web/importer.py).
 // Part rows get a "⋯" menu: rename, move, older versions, delete.
 // The project bar gets a "⋯" menu: rename, delete. The gear opens the settings.
 // The first-run setup shows when printwright.json still has the example printer URL.
-import { state, api, toast, esc, hooks, refreshParts, loadProjectList, openProject } from "./app.js";
+import { state, api, toast, esc, hooks, refreshParts, loadProjectList, openProject, selectPart } from "./app.js";
 
 const $ = (id) => document.getElementById(id);
 const UNSORTED = "unsorted";
@@ -255,12 +256,63 @@ async function watchBuilds() {
   const changed = running(next) !== running(builds);
   builds = next;
   for (const [n, b] of finished) {
-    if (b.state === "done") toast(`${n} is built.`);
+    if (b.state === "done") toast(`${n} is built.${b.note ? " " + b.note : ""}`, b.note ? 7000 : 3500);
     else toast(`Build of ${n} failed: ${(b.log || "").split("\n").slice(-2).join(" ")}`, 9000);
   }
   if (changed) await refreshParts().catch(() => {}); // shows or hides "building…", loads the new model
   if (Object.values(builds).some((b) => b.state === "running")) watchBuilds.timer = setTimeout(watchBuilds, 2500);
 }
+
+// ---------- Import an STL or G-code file ----------
+const IMPORT_MAX_MB = 100; // MAX_IMPORT in web/importer.py
+const IMPORT_TEXT = {
+  stl: "The STL becomes a part in this project. Claude can change it in the chat: holes, cuts, " +
+    "a new size, extra parts. A small mesh becomes a CAD solid. A big mesh (more than 20 000 triangles) " +
+    "gets fast mesh edits.",
+  gcode: "The G-code becomes a part in this project. You see its layers and can print it. " +
+    "Claude can change the temperatures, fan, speed and flow, or add a pause at a layer. The shape stays as sliced.",
+};
+
+$("parts-import").addEventListener("click", () => {
+  if (busy()) return;
+  $("import-input").value = "";
+  $("import-input").click();
+});
+
+$("import-input").addEventListener("change", async () => {
+  const file = $("import-input").files[0];
+  if (!file) return;
+  const ext = file.name.split(".").pop().toLowerCase();
+  const kind = ext === "stl" ? "stl" : ["gcode", "gco", "g"].includes(ext) ? "gcode" : null;
+  if (!kind) return toast("Import an .stl or a .gcode file.");
+  if (file.size > IMPORT_MAX_MB * 2 ** 20) return toast(`The file is larger than ${IMPORT_MAX_MB} MB.`);
+  const suggested = file.name.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9]+/g, "_")
+    .replace(/^[^a-z]+/, "").replace(/_+$/, "").slice(0, 40) || "imported_part";
+  let result = null;
+  const name = await dialog({
+    title: `Import ${file.name}`,
+    html: `<p class="muted">${esc(IMPORT_TEXT[kind])}</p><p>Name of the part:</p>`,
+    field: { value: suggested, max: 60, check: (v) => /^[a-z][a-z0-9_]*$/.test(v) ? null : "Use lowercase letters, digits and _ only. Start with a letter." },
+    ok: "Import",
+    submit: async (value, form) => {
+      const btn = form.querySelector("button[type=submit]");
+      btn.innerHTML = `<span class="spinner"></span> Uploading…`;
+      try {
+        const q = new URLSearchParams({ name: value, filename: file.name, project: state.project || "" });
+        const res = await fetch(`/api/import?${q}`, { method: "POST", body: file, headers: { "Content-Type": "application/octet-stream" } });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || res.statusText);
+        result = data;
+      } finally { btn.textContent = "Import"; }
+    },
+  });
+  if (!name || !result) return;
+  toast(kind === "gcode" ? `${name} is imported. It builds now. Then ask Claude in the chat for changes.`
+    : `${name} is imported (${result.kind === "mesh" ? "mesh" : "CAD solid"}). It builds now. Then ask Claude in the chat for changes.`, 6000);
+  await reload();
+  selectPart(name);
+  watchBuilds();
+});
 
 // ---------- Project actions ----------
 $("project-menu").addEventListener("click", () => {

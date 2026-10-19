@@ -30,6 +30,19 @@ Their name, the printer, the bed size and the material are in `printwright.json`
   (OrcaSlicer). It writes `gcode/plate_<id>.gcode`, `.json` (time, grams) and `.layout.json`, and exits 2
   when the copies do not fit. Show the result and ask before printing, like a single part.
 
+## Imported parts
+
+- The web app's Import button turns an STL or a G-code file into a part. The file is in `imports/<part>.*`. Never change it.
+- The part file says its kind near the top. Edit only the part file, then run `tools/make.sh <part>`.
+  - **STL, small** (no mark): one CAD solid from `load_solid()`. Edit it with build123d like any part.
+  - **STL, big** (`# printwright: mesh`): a manifold3d mesh from `load()`. Edit it with mesh booleans in `<part>()`:
+    `m3.Manifold.cube/cylinder/sphere`, `+`, `-`, `^`, `.translate()`, `.rotate()`, `.scale()`.
+    No STEP and no face selection. Review with `cadgen stl snapshot STL/<part>.stl tmp/<part>.png`.
+  - **G-code** (`# printwright: gcode`): only text edits in `edit(g)`: `nozzle_temp`, `bed_temp`, `fan`, `speed`,
+    `flow`, `pause_at_layer`, `pause_at_height`, `insert_at_layer` (`src/lib/gcode_edit.py`). Layers count from 1.
+    There is no model and no print settings. To change the shape, the user must import the STL.
+    `gcode/<part>.meta.json` has the size, slicer, layers, edits and warnings. Tell the user about warnings.
+
 ## Print settings
 
 - Each part can have `presets/parts/<part>.json`. A plate has `presets/parts/plate_<project>.json`.
@@ -71,6 +84,7 @@ Their name, the printer, the bed size and the material are in `printwright.json`
 - `tools/printer.py` Moonraker: status, upload, print, start, cancel, estimate
 - `tools/make_presets.py` write presets with the printer's real limits into `presets/`
 - `projects/` project files (parts list, ideas, plate) and uploaded pictures
+- `imports/` imported STL and G-code files (never change them)
 - `presets/parts/<part>.json` print settings per part or plate: process keys, material, placement (see "Print settings")
 - `presets/filaments/<material>.json` your own filament presets (the app has PETG and TPU)
 - `.printwright/` web app data (chats, Ideas runs); not in git

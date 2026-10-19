@@ -2,7 +2,8 @@
 // The server parses the G-code into segments per feature type (web/layers.py). Each type
 // becomes one instanced mesh of thin ribbons. The layer slider only changes instanceCount
 // and one uniform, so moving it never rebuilds geometry.
-// app.js calls initLayers() once and then the hooks update() and printer().
+// app.js calls initLayers() once and then the hooks update() and printer(). show(on) turns
+// the view on or off (app.js does it for an imported G-code, which has no 3D model).
 import * as THREE from "three";
 
 // Feature colours, close to OrcaSlicer's preview. Unknown types get a colour from their name.
@@ -559,5 +560,5 @@ export function initLayers(ctx) {
     }
   }
 
-  return { update, printer, get state() { return L; } };
+  return { update, printer, show: setOn, get state() { return L; } };
 }

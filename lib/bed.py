@@ -12,6 +12,7 @@ Rulers start at 0 on the part's edges; a red mark and label show the exact size.
 The label reads print time and grams from gcode/<part>.json (tools/slice.sh).
 The part is turned as "placement" in presets/parts/<part>.json says (lib/part_settings.py),
 so the bed view, the size check and the slicer agree.
+A mesh part (an imported STL, lib/mesh.py) uses on_bed_mesh(): the same scene without the mesh.
 
 The bed size comes from printwright.json in the workspace. The workspace is
 PRINTWRIGHT_WORKSPACE, else the current folder, else the folder above the part
@@ -27,7 +28,7 @@ from pathlib import Path
 from cadgen import build123d as bd
 from cadgen import srgb
 
-from .part_settings import is_turned, placement
+from .part_settings import is_turned, placement, rotation_matrix
 from .workspace import find_workspace, load_config
 
 # Not Path(__file__).resolve(): that points into the app, not the workspace.
@@ -165,6 +166,31 @@ def on_bed(part, name):
             if angle % 360:
                 part = part.rotate(axis, angle)
         part.color = color
+    return _scene(part, name, pl)
+
+
+def on_bed_mesh(stl, name, here):
+    """Bed scene for a mesh part (lib/mesh.py): bed, rulers and label, but not the mesh.
+
+    stl is the part's binary STL, relative to the part file `here` (pass __file__).
+    The size comes from its triangles, turned as the placement says. The page draws
+    the mesh itself from the placed STL, because a big mesh as CAD faces is too slow.
+    """
+    import numpy as np
+
+    pl = placement(name, WS)
+    data = (Path(here).parent / stl).read_bytes()
+    count = int.from_bytes(data[80:84], "little")
+    tris = np.frombuffer(data, dtype=np.dtype([("n", "<f4", 3), ("v", "<f4", (3, 3)), ("a", "<u2")]),
+                         count=count, offset=84)
+    pts = tris["v"].reshape(-1, 3).astype(float) @ np.array(rotation_matrix(*pl["rotate"])).T
+    lo, hi = pts.min(axis=0), pts.max(axis=0)
+    box = bd.Box(*(hi - lo), align=(bd.Align.MIN,) * 3).moved(bd.Location(tuple(lo)))
+    return _scene(box, name, pl, show=False)
+
+
+def _scene(part, name, pl, show=True):
+    """Bed, rulers and label around the (turned) part. show=False leaves the part out."""
     bb = part.bounding_box()
     sx, sy, sz = bb.size.X, bb.size.Y, bb.size.Z
     fits = sx <= BED_X and sy <= BED_Y and sz <= BED_Z
@@ -195,5 +221,6 @@ def on_bed(part, name):
     for axis, length, side, plane in rulers:
         for s in _ruler(length, axis, side):
             children.append(s.moved(bd.Location(plane)))
-    children.append(placed)
+    if show:
+        children.append(placed)
     return bd.Compound(children=children, label=f"{name}_on_bed")

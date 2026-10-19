@@ -105,6 +105,21 @@ The README covers the install. This file lists what Printwright can do.
 - **File prefix.** Uploaded files start with `file_prefix` (default `AI_`). Other files on the printer stay untouched.
 - **Command line.** `tools/printer.py status | upload | print | start | cancel | estimate`.
 
+## Import STL and G-code
+
+- **Import button.** Import… in the parts panel turns an STL or a G-code file (up to 100 MB) into a part of the project.
+  The file goes into `imports/<part>.stl` or `imports/<part>.gcode` and never changes. The part builds in the background.
+- **Small STL (up to 20 000 triangles).** It becomes one CAD solid. Claude edits it with build123d like a designed part:
+  holes, cuts, new size, extra parts. STEP, face selection and the bed view work as usual.
+- **Big STL.** It becomes a mesh part (`# printwright: mesh`). Claude edits it with manifold3d mesh booleans,
+  which stay fast on big meshes (0.3 s for 135 000 triangles). There is no STEP and no face selection.
+  The bed view draws the mesh from its STL. An STL that is not a clean solid also becomes a mesh part.
+- **G-code.** It becomes a G-code part (`# printwright: gcode`). The page shows its layers, size, print time and grams.
+  Claude changes the G-code text: nozzle and bed temperature, fan, speed, flow, a pause at a layer or a height,
+  your own lines at a layer (`lib/gcode_edit.py`). The toolpaths stay as sliced. Print settings and plates do not apply.
+  OrcaSlicer, PrusaSlicer and Cura files work. The page warns when the print goes outside the bed or uses another nozzle size.
+- **Git.** The imported file is in the workspace git repo, so a big file makes the repo bigger.
+
 ## Projects & files
 
 - **Projects.** Each project keeps its own parts, chats, ideas, files and plate.
@@ -122,6 +137,7 @@ The README covers the install. This file lists what Printwright can do.
     src/lib -> <app>/lib    bed view library (link)
     tools -> <app>/tools    build, slice, plate, printer tools (link)
     projects/<id>/          project.json and files/
+    imports/                imported STL and G-code files (Import button)
     presets/                optional: your own OrcaSlicer presets
     STEP/ STL/ GLB/ gcode/ tmp/   generated, not in git
     .printwright/           chats and Ideas runs, not in git

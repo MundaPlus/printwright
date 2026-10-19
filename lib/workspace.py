@@ -16,11 +16,13 @@ Command line (for shell scripts):
   workspace.py root            print the workspace path
   workspace.py presets         print the presets folder
   workspace.py get KEY         print one config value (JSON for lists)
+  workspace.py kind FILE       print the kind of a part file: cad, mesh or gcode
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -102,10 +104,32 @@ def presets_dir(ws: Path | None = None, cfg: dict | None = None) -> Path:
     return (p if p.is_absolute() else ws / p).resolve()
 
 
+# Part kinds. A part file in src/ is "cad" (build123d), unless a line near its top says
+# "# printwright: mesh" (an imported STL edited with manifold3d) or "# printwright: gcode"
+# (an imported G-code with text edits). tools/make.sh and the web app read this mark.
+KIND_RE = re.compile(r"^# printwright: (mesh|gcode)\s*$", re.M)
+# uvx options that add the mesh libraries to cadgen's Python, for "mesh" parts.
+MESH_WITH = ["--with", "manifold3d==3.5.4", "--with", "trimesh==5.1.1", "--with", "networkx==3.7"]  # networkx: trimesh hole repair
+
+
+def part_kind(path: Path) -> str:
+    """'cad', 'mesh' or 'gcode' for a part file (src/<part>.py)."""
+    try:
+        with open(path, errors="replace") as f:
+            head = f.read(2000)
+    except OSError:
+        return "cad"
+    m = KIND_RE.search(head)
+    return m.group(1) if m else "cad"
+
+
 def main(argv: list[str]) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
         return 1
+    if argv[0] == "kind" and len(argv) == 2:  # needs no workspace
+        print(part_kind(Path(argv[1])))
+        return 0
     ws = find_workspace()
     if argv[0] == "root":
         print(ws)
